@@ -6,10 +6,10 @@ import Link from 'next/link';
 import { 
   LayoutDashboard, Users, GraduationCap, BookOpen, 
   ClipboardList, CreditCard, FileText, Home, 
-  UserPlus, BarChart3, LogOut, Menu, X, CheckSquare, Heart
+  UserPlus, BarChart3, Settings, LogOut, Menu, X, Heart
 } from 'lucide-react';
 import { db } from '@/lib/db';
-import { UserProfile } from '@/types';
+import { UserProfile, Madrasha } from '@/types';
 
 export default function DashboardLayout({
   children,
@@ -17,22 +17,40 @@ export default function DashboardLayout({
   children: React.ReactNode;
 }) {
   const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [madrasha, setMadrasha] = useState<Madrasha | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const router = useRouter();
   const pathname = usePathname();
 
+  const loadData = async () => {
+    const userProfile = await db.getProfile();
+    if (!userProfile) {
+      router.replace('/login');
+    } else {
+      setProfile(userProfile);
+      const madrashaData = await db.getMadrasha();
+      setMadrasha(madrashaData);
+    }
+    setLoading(false);
+  };
+
   useEffect(() => {
-    const fetchProfile = async () => {
-      const userProfile = await db.getProfile();
-      if (!userProfile) {
-        router.replace('/login');
-      } else {
-        setProfile(userProfile);
-      }
-      setLoading(false);
+    loadData();
+
+    // Listen for custom settings update event
+    const handleSettingsUpdated = () => {
+      db.getMadrasha().then(data => setMadrasha(data));
     };
-    fetchProfile();
+
+    if (typeof window !== 'undefined') {
+      window.addEventListener('madrasha-settings-updated', handleSettingsUpdated);
+    }
+    return () => {
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('madrasha-settings-updated', handleSettingsUpdated);
+      }
+    };
   }, [router]);
 
   const handleLogout = async () => {
@@ -66,28 +84,36 @@ export default function DashboardLayout({
     { name: 'হোস্টেল ও বোর্ডিং', href: '/hostel', icon: Home, roles: ['admin'] },
     { name: 'কমিটি সদস্য', href: '/committee', icon: UserPlus, roles: ['admin'] },
     { name: 'আয়-ব্যয় ও রিপোর্ট', href: '/reports', icon: BarChart3, roles: ['admin'] },
+    { name: 'সাইট সেটিং', href: '/settings', icon: Settings, roles: ['admin'] },
   ];
 
   // Filter based on user role
   const navigation = allNavigation.filter(item => item.roles.includes(profile.role));
 
   const roleText = profile.role === 'admin' ? 'সুপার এডমিন' : 'শিক্ষক';
+  const madrashaName = madrasha?.name || 'মুহাম্মাদীয়া তাহফীযুল কুরআন';
+  const madrashaTagline = madrasha?.tagline || 'মাদরাসা ম্যানেজমেন্ট সিস্টেম';
 
   return (
     <div className="min-h-screen bg-slate-100 flex flex-col md:flex-row">
       {/* Mobile Header Banner */}
       <header className="md:hidden bg-emerald-700 text-white flex items-center justify-between px-4 py-3 shadow-md no-print">
-        <div className="flex items-center gap-2">
-          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-white/20">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 21v-8.25M15.75 21v-8.25M8.25 21v-8.25M3 9l9-6 9 6m-1.5 12V10.332A48.36 48.36 0 0 0 12 9.75c-2.551 0-5.053.2-7.5.582V21M3 21h18M12 6.75h.008v.008H12V6.75Z" />
-            </svg>
+        <div className="flex items-center gap-2.5">
+          <div className="flex h-9 w-9 items-center justify-center rounded-full bg-white/20 overflow-hidden shrink-0">
+            {madrasha?.logo_url ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={madrasha.logo_url} alt="Logo" className="h-full w-full object-cover" />
+            ) : (
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5 text-white">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 21v-8.25M15.75 21v-8.25M8.25 21v-8.25M3 9l9-6 9 6m-1.5 12V10.332A48.36 48.36 0 0 0 12 9.75c-2.551 0-5.053.2-7.5.582V21M3 21h18M12 6.75h.008v.008H12V6.75Z" />
+              </svg>
+            )}
           </div>
-          <span className="font-bold text-base tracking-wide">মুহাম্মাদীয়া তাহফীযুল কুরআন</span>
+          <span className="font-bold text-sm tracking-wide truncate max-w-[200px]">{madrashaName}</span>
         </div>
         <button 
           onClick={() => setSidebarOpen(!sidebarOpen)}
-          className="p-1 rounded-lg hover:bg-emerald-800 transition"
+          className="p-1.5 rounded-lg hover:bg-emerald-800 transition"
         >
           {sidebarOpen ? <X size={24} /> : <Menu size={24} />}
         </button>
@@ -108,15 +134,20 @@ export default function DashboardLayout({
         md:static md:inset-auto md:flex md:w-64 md:min-h-screen
       `}>
         {/* Brand Logo Section */}
-        <div className="flex h-16 items-center gap-3 px-6 border-b border-emerald-700/50">
-          <div className="flex h-9 w-9 items-center justify-center rounded-full bg-white/10 text-emerald-100">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 21v-8.25M15.75 21v-8.25M8.25 21v-8.25M3 9l9-6 9 6m-1.5 12V10.332A48.36 48.36 0 0 0 12 9.75c-2.551 0-5.053.2-7.5.582V21M3 21h18M12 6.75h.008v.008H12V6.75Z" />
-            </svg>
+        <div className="flex h-16 items-center gap-3 px-5 border-b border-emerald-700/50">
+          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-emerald-100 overflow-hidden shrink-0">
+            {madrasha?.logo_url ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={madrasha.logo_url} alt="Logo" className="h-full w-full object-cover" />
+            ) : (
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-6 h-6">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 21v-8.25M15.75 21v-8.25M8.25 21v-8.25M3 9l9-6 9 6m-1.5 12V10.332A48.36 48.36 0 0 0 12 9.75c-2.551 0-5.053.2-7.5.582V21M3 21h18M12 6.75h.008v.008H12V6.75Z" />
+              </svg>
+            )}
           </div>
-          <div>
-            <h1 className="font-bold text-sm leading-tight text-white">মুহাম্মাদীয়া তাহফীযুল কুরআন</h1>
-            <p className="text-[10px] text-emerald-200">মাদরাসা ম্যানেজমেন্ট সিস্টেম</p>
+          <div className="flex-1 min-w-0">
+            <h1 className="font-bold text-xs leading-tight text-white truncate">{madrashaName}</h1>
+            <p className="text-[10px] text-emerald-200 truncate mt-0.5">{madrashaTagline}</p>
           </div>
         </div>
 
@@ -180,6 +211,7 @@ export default function DashboardLayout({
             {pathname.startsWith('/hostel') && 'হোস্টেল ও বোর্ডিং ব্যবস্থাপনা'}
             {pathname.startsWith('/committee') && 'মাদরাসা পরিচালনা কমিটি'}
             {pathname.startsWith('/reports') && 'আয়-ব্যয় হিসাব ও রিপোর্ট'}
+            {pathname.startsWith('/settings') && 'সাইট ও প্রতিষ্ঠান সেটিংস'}
           </h2>
           <div className="flex items-center gap-4">
             <div className="flex items-center gap-2">

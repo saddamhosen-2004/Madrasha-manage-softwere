@@ -300,6 +300,32 @@ export const db = {
     return getLocalItems<Madrasha>('madrashas')[0] || SEED_MADRASHA;
   },
 
+  async updateMadrasha(updatedFields: Partial<Madrasha>): Promise<Madrasha> {
+    const current = await this.getMadrasha();
+    if (isSupabaseConfigured()) {
+      const { data, error } = await supabase
+        .from('madrashas')
+        .update(updatedFields)
+        .eq('id', current.id)
+        .select()
+        .single();
+      if (error) {
+        console.error("Supabase error updating madrasha:", error);
+        throw new Error(error.message);
+      }
+      return data;
+    }
+    const madrashas = getLocalItems<Madrasha>('madrashas');
+    const updated = { ...current, ...updatedFields };
+    if (madrashas.length > 0) {
+      madrashas[0] = updated;
+      saveLocalItems('madrashas', madrashas);
+    } else {
+      saveLocalItems('madrashas', [updated]);
+    }
+    return updated;
+  },
+
   // Auth Operations
   async getProfile(): Promise<UserProfile | null> {
     if (isSupabaseConfigured()) {

@@ -2,6 +2,12 @@ export interface Madrasha {
   id: string;
   name: string;
   address?: string;
+  phone?: string;
+  email?: string;
+  logo_url?: string;
+  tagline?: string;
+  established_year?: string;
+  principal_name?: string;
   created_at?: string;
 }
 
