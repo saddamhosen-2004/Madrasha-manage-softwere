@@ -2,11 +2,11 @@
 
 import { useState, useEffect } from 'react';
 import { db } from '@/lib/db';
-import { Student, Teacher, FeeCollection } from '@/types';
+import { Student, Teacher, FeeCollection, Expense, TeacherSalary } from '@/types';
 import {
   Users, GraduationCap, Banknote, CalendarDays,
   BookOpen, ChevronRight, AlertCircle, TrendingUp,
-  ArrowUpRight, Star
+  ArrowUpRight, Star, UserCheck, UserX, Wallet, Receipt
 } from 'lucide-react';
 import Link from 'next/link';
 
@@ -17,9 +17,15 @@ export default function DashboardPage() {
 
   const [stats, setStats] = useState({
     totalStudents: 0,
+    maleStudents: 0,
+    femaleStudents: 0,
     totalTeachers: 0,
+    maleTeachers: 0,
+    femaleTeachers: 0,
     collectedThisMonth: 0,
     duesThisMonth: 0,
+    monthlyExpense: 0,
+    fundBalance: 0,
     presentToday: 0,
     absentToday: 0,
     departments: { nurani: 0, nazera: 0, hifz: 0, kitab: 0 }
@@ -31,12 +37,14 @@ export default function DashboardPage() {
         const fetchedStudents = await db.getStudents();
         const fetchedTeachers = await db.getTeachers();
         const fetchedFees = await db.getFees();
+        const fetchedExpenses = await db.getExpenses();
 
         const now = new Date();
         const currentMonth = now.getMonth() + 1;
         const currentYear = now.getFullYear();
         const todayStr = now.toISOString().slice(0, 10);
 
+        // Attendance
         let presentCount = 0;
         let absentCount = 0;
         const classes = await db.getClasses();
@@ -52,6 +60,7 @@ export default function DashboardPage() {
           absentCount = fetchedStudents.filter(s => s.id === 'student-3').length;
         }
 
+        // Fee stats
         const thisMonthFees = fetchedFees.filter(f => f.month === currentMonth && f.year === currentYear);
         const collectedSum = thisMonthFees.reduce((sum, f) => sum + Number(f.amount), 0);
         const payingStudents = fetchedStudents.filter(s => !s.is_lillah);
@@ -59,18 +68,52 @@ export default function DashboardPage() {
         const unpaidStudents = payingStudents.filter(s => !paidStudentIds.includes(s.id));
         const duesSum = unpaidStudents.reduce((sum, s) => sum + Number(s.monthly_fee), 0);
 
+        // Dept counts
         const deptCounts = { nurani: 0, nazera: 0, hifz: 0, kitab: 0 };
         fetchedStudents.forEach(s => {
           if (s.department in deptCounts) deptCounts[s.department as keyof typeof deptCounts]++;
         });
 
+        // Gender breakdown — use 'gender' field if exists, else default male
+        const maleStudents = fetchedStudents.filter(s => !((s as any).gender) || (s as any).gender === 'male').length;
+        const femaleStudents = fetchedStudents.filter(s => (s as any).gender === 'female').length;
+        const maleTeachers = fetchedTeachers.filter(t => !((t as any).gender) || (t as any).gender === 'male').length;
+        const femaleTeachers = fetchedTeachers.filter(t => (t as any).gender === 'female').length;
+
+        // Monthly expense
+        const thisMonthExpenses = fetchedExpenses.filter(e => {
+          const d = new Date(e.expense_date);
+          return (d.getMonth() + 1) === currentMonth && d.getFullYear() === currentYear;
+        });
+        const monthlyExpense = thisMonthExpenses.reduce((sum, e) => sum + Number(e.amount), 0);
+
+        // Fund balance = total collected ever - total expenses ever - teacher salaries paid
+        const totalCollectedEver = fetchedFees.reduce((sum, f) => sum + Number(f.amount), 0);
+        const totalExpensesEver = fetchedExpenses.reduce((sum, e) => sum + Number(e.amount), 0);
+        // Read teacher salaries from localStorage
+        let totalSalariesPaid = 0;
+        if (typeof window !== 'undefined') {
+          const salData = localStorage.getItem('teacher_salaries');
+          if (salData) {
+            const sals: TeacherSalary[] = JSON.parse(salData);
+            totalSalariesPaid = sals.reduce((sum, s) => sum + Number(s.amount), 0);
+          }
+        }
+        const fundBalance = totalCollectedEver - totalExpensesEver - totalSalariesPaid;
+
         setStudents(fetchedStudents);
         setFees(fetchedFees);
         setStats({
           totalStudents: fetchedStudents.length,
+          maleStudents,
+          femaleStudents,
           totalTeachers: fetchedTeachers.length,
+          maleTeachers,
+          femaleTeachers,
           collectedThisMonth: collectedSum,
           duesThisMonth: duesSum,
+          monthlyExpense,
+          fundBalance,
           presentToday: presentCount,
           absentToday: absentCount,
           departments: deptCounts
@@ -103,49 +146,6 @@ export default function DashboardPage() {
   const recentCollections = [...fees]
     .sort((a, b) => b.paid_date.localeCompare(a.paid_date))
     .slice(0, 4);
-
-  const statCards = [
-    {
-      label: 'মোট ছাত্র',
-      value: `${toBanglaNum(stats.totalStudents)} জন`,
-      icon: <Users size={26} />,
-      gradient: 'from-emerald-500 to-teal-400',
-      lightBg: 'bg-emerald-50',
-      textColor: 'text-emerald-700',
-      badge: '+২ এই মাসে',
-      delay: 'delay-0',
-    },
-    {
-      label: 'মোট শিক্ষক',
-      value: `${toBanglaNum(stats.totalTeachers)} জন`,
-      icon: <GraduationCap size={26} />,
-      gradient: 'from-violet-500 to-purple-400',
-      lightBg: 'bg-violet-50',
-      textColor: 'text-violet-700',
-      badge: 'সক্রিয়',
-      delay: 'delay-75',
-    },
-    {
-      label: 'চলতি মাসে ফি আদায়',
-      value: `৳${toBanglaNum(stats.collectedThisMonth)}`,
-      icon: <Banknote size={26} />,
-      gradient: 'from-blue-500 to-cyan-400',
-      lightBg: 'bg-blue-50',
-      textColor: 'text-blue-700',
-      badge: 'এই মাস',
-      delay: 'delay-150',
-    },
-    {
-      label: 'বকেয়া পাওনা',
-      value: `৳${toBanglaNum(stats.duesThisMonth)}`,
-      icon: <AlertCircle size={26} />,
-      gradient: 'from-rose-500 to-orange-400',
-      lightBg: 'bg-rose-50',
-      textColor: 'text-rose-700',
-      badge: 'অপরিশোধিত',
-      delay: 'delay-225',
-    },
-  ];
 
   const deptBars = [
     { label: 'নূরানী বিভাগ', sub: 'বর্ণমালা ও উচ্চারণ', count: stats.departments.nurani, color: 'bg-gradient-to-r from-emerald-500 to-teal-400', ring: 'ring-emerald-200', bg: 'bg-emerald-50', text: 'text-emerald-700' },
@@ -191,31 +191,128 @@ export default function DashboardPage() {
 
       {/* ── 4 Colourful Stat Cards ── */}
       <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
-        {statCards.map((card, i) => (
-          <div
-            key={i}
-            className={`animate-fade-in-up ${card.delay} card-motion relative overflow-hidden rounded-2xl bg-white border border-slate-100 shadow-sm cursor-default`}
-          >
-            {/* Coloured top bar */}
-            <div className={`h-1.5 w-full bg-gradient-to-r ${card.gradient}`}></div>
 
-            <div className="p-5">
-              <div className="flex items-start justify-between mb-4">
-                <div className={`rounded-xl ${card.lightBg} p-3 ${card.textColor}`}>
-                  {card.icon}
-                </div>
-                <span className={`text-[10px] font-bold px-2 py-1 rounded-full ${card.lightBg} ${card.textColor}`}>
-                  {card.badge}
-                </span>
-              </div>
-              <p className="text-xs font-semibold text-slate-500 mb-1">{card.label}</p>
-              <h4 className="text-2xl font-bold text-slate-800">{card.value}</h4>
+        {/* Card 1: Total Students */}
+        <div className="animate-fade-in-up delay-0 card-motion relative overflow-hidden rounded-2xl bg-white border border-slate-100 shadow-sm cursor-default">
+          <div className="h-1.5 w-full bg-gradient-to-r from-emerald-500 to-teal-400"></div>
+          <div className="p-5">
+            <div className="flex items-start justify-between mb-3">
+              <div className="rounded-xl bg-emerald-50 p-3 text-emerald-700"><Users size={26} /></div>
+              <span className="text-[10px] font-bold px-2 py-1 rounded-full bg-emerald-50 text-emerald-700">+২ এই মাসে</span>
             </div>
-
-            {/* Decorative circle */}
-            <div className={`pointer-events-none absolute -right-4 -bottom-4 h-20 w-20 rounded-full bg-gradient-to-br ${card.gradient} opacity-10`}></div>
+            <p className="text-xs font-semibold text-slate-500 mb-1">মোট ছাত্র</p>
+            <h4 className="text-2xl font-bold text-slate-800 mb-3">{toBanglaNum(stats.totalStudents)} জন</h4>
+            {/* Gender breakdown */}
+            <div className="grid grid-cols-2 gap-2">
+              <div className="flex items-center gap-1.5 rounded-xl bg-blue-50 border border-blue-100 px-2.5 py-1.5">
+                <UserCheck size={13} className="text-blue-600 shrink-0" />
+                <div>
+                  <p className="text-[9px] font-bold text-blue-500 leading-none">ছাত্র</p>
+                  <p className="text-sm font-bold text-blue-700">{toBanglaNum(stats.maleStudents)}</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-1.5 rounded-xl bg-pink-50 border border-pink-100 px-2.5 py-1.5">
+                <UserX size={13} className="text-pink-600 shrink-0" />
+                <div>
+                  <p className="text-[9px] font-bold text-pink-500 leading-none">ছাত্রী</p>
+                  <p className="text-sm font-bold text-pink-700">{toBanglaNum(stats.femaleStudents)}</p>
+                </div>
+              </div>
+            </div>
           </div>
-        ))}
+          <div className="pointer-events-none absolute -right-4 -bottom-4 h-20 w-20 rounded-full bg-gradient-to-br from-emerald-500 to-teal-400 opacity-10"></div>
+        </div>
+
+        {/* Card 2: Total Teachers */}
+        <div className="animate-fade-in-up delay-75 card-motion relative overflow-hidden rounded-2xl bg-white border border-slate-100 shadow-sm cursor-default">
+          <div className="h-1.5 w-full bg-gradient-to-r from-violet-500 to-purple-400"></div>
+          <div className="p-5">
+            <div className="flex items-start justify-between mb-3">
+              <div className="rounded-xl bg-violet-50 p-3 text-violet-700"><GraduationCap size={26} /></div>
+              <span className="text-[10px] font-bold px-2 py-1 rounded-full bg-violet-50 text-violet-700">সক্রিয়</span>
+            </div>
+            <p className="text-xs font-semibold text-slate-500 mb-1">মোট শিক্ষক</p>
+            <h4 className="text-2xl font-bold text-slate-800 mb-3">{toBanglaNum(stats.totalTeachers)} জন</h4>
+            {/* Gender breakdown */}
+            <div className="grid grid-cols-2 gap-2">
+              <div className="flex items-center gap-1.5 rounded-xl bg-indigo-50 border border-indigo-100 px-2.5 py-1.5">
+                <UserCheck size={13} className="text-indigo-600 shrink-0" />
+                <div>
+                  <p className="text-[9px] font-bold text-indigo-500 leading-none">পুরুষ</p>
+                  <p className="text-sm font-bold text-indigo-700">{toBanglaNum(stats.maleTeachers)}</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-1.5 rounded-xl bg-fuchsia-50 border border-fuchsia-100 px-2.5 py-1.5">
+                <UserX size={13} className="text-fuchsia-600 shrink-0" />
+                <div>
+                  <p className="text-[9px] font-bold text-fuchsia-500 leading-none">মহিলা</p>
+                  <p className="text-sm font-bold text-fuchsia-700">{toBanglaNum(stats.femaleTeachers)}</p>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div className="pointer-events-none absolute -right-4 -bottom-4 h-20 w-20 rounded-full bg-gradient-to-br from-violet-500 to-purple-400 opacity-10"></div>
+        </div>
+
+        {/* Card 3: Fee Collection + Due COMBINED */}
+        <div className="animate-fade-in-up delay-150 card-motion relative overflow-hidden rounded-2xl bg-white border border-slate-100 shadow-sm cursor-default">
+          <div className="h-1.5 w-full bg-gradient-to-r from-blue-500 to-cyan-400"></div>
+          <div className="p-5">
+            <div className="flex items-start justify-between mb-3">
+              <div className="rounded-xl bg-blue-50 p-3 text-blue-700"><Banknote size={26} /></div>
+              <span className="text-[10px] font-bold px-2 py-1 rounded-full bg-blue-50 text-blue-700">এই মাস</span>
+            </div>
+            <p className="text-xs font-semibold text-slate-500 mb-0.5">ফি আদায় ও বকেয়া</p>
+            {/* Fee collected */}
+            <div className="mt-2 space-y-2">
+              <div className="flex items-center justify-between rounded-xl bg-emerald-50 border border-emerald-100 px-3 py-2">
+                <div className="flex items-center gap-1.5">
+                  <Receipt size={13} className="text-emerald-600" />
+                  <span className="text-[10px] font-bold text-emerald-700">আদায়কৃত</span>
+                </div>
+                <span className="text-sm font-bold text-emerald-700">৳{toBanglaNum(stats.collectedThisMonth)}</span>
+              </div>
+              <div className="flex items-center justify-between rounded-xl bg-rose-50 border border-rose-100 px-3 py-2">
+                <div className="flex items-center gap-1.5">
+                  <AlertCircle size={13} className="text-rose-500" />
+                  <span className="text-[10px] font-bold text-rose-700">বকেয়া</span>
+                </div>
+                <span className="text-sm font-bold text-rose-600">৳{toBanglaNum(stats.duesThisMonth)}</span>
+              </div>
+            </div>
+          </div>
+          <div className="pointer-events-none absolute -right-4 -bottom-4 h-20 w-20 rounded-full bg-gradient-to-br from-blue-500 to-cyan-400 opacity-10"></div>
+        </div>
+
+        {/* Card 4 (NEW): Monthly Expense + Fund Balance */}
+        <div className="animate-fade-in-up delay-225 card-motion relative overflow-hidden rounded-2xl bg-white border border-slate-100 shadow-sm cursor-default">
+          <div className="h-1.5 w-full bg-gradient-to-r from-amber-500 to-orange-400"></div>
+          <div className="p-5">
+            <div className="flex items-start justify-between mb-3">
+              <div className="rounded-xl bg-amber-50 p-3 text-amber-700"><Wallet size={26} /></div>
+              <span className="text-[10px] font-bold px-2 py-1 rounded-full bg-amber-50 text-amber-700">এই মাস</span>
+            </div>
+            <p className="text-xs font-semibold text-slate-500 mb-0.5">ব্যয় ও তহবিল</p>
+            <div className="mt-2 space-y-2">
+              <div className="flex items-center justify-between rounded-xl bg-orange-50 border border-orange-100 px-3 py-2">
+                <div className="flex items-center gap-1.5">
+                  <TrendingUp size={13} className="text-orange-600" />
+                  <span className="text-[10px] font-bold text-orange-700">মাসিক ব্যয়</span>
+                </div>
+                <span className="text-sm font-bold text-orange-600">৳{toBanglaNum(stats.monthlyExpense)}</span>
+              </div>
+              <div className="flex items-center justify-between rounded-xl bg-teal-50 border border-teal-100 px-3 py-2">
+                <div className="flex items-center gap-1.5">
+                  <Wallet size={13} className="text-teal-600" />
+                  <span className="text-[10px] font-bold text-teal-700">তহবিল</span>
+                </div>
+                <span className={`text-sm font-bold ${stats.fundBalance >= 0 ? 'text-teal-700' : 'text-rose-600'}`}>৳{toBanglaNum(Math.abs(stats.fundBalance))}</span>
+              </div>
+            </div>
+          </div>
+          <div className="pointer-events-none absolute -right-4 -bottom-4 h-20 w-20 rounded-full bg-gradient-to-br from-amber-500 to-orange-400 opacity-10"></div>
+        </div>
+
       </div>
 
       {/* ── Middle Row ── */}
