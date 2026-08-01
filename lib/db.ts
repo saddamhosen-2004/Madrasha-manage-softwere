@@ -151,7 +151,7 @@ const SEED_STUDENTS: Student[] = [
     department: 'hifz',
     class_id: 'class-3',
     monthly_fee: 0,
-    is_lillah: true, // Lillah boarding
+    is_lillah: true,
     is_hostel: true,
     photo_url: '',
     madrasha_id: MOCK_MADRASHA_ID
@@ -243,7 +243,6 @@ const initLocalStorage = () => {
   setItemIfEmpty('hifz_progress', SEED_HIFZ);
   setItemIfEmpty('exams', SEED_EXAMS);
   setItemIfEmpty('results', SEED_RESULTS);
-
 };
 
 // Call initialization immediately
@@ -275,7 +274,28 @@ export const db = {
         .select('*')
         .limit(1)
         .single();
-      if (!error && data) return data;
+      
+      if (error) {
+        if (error.code === 'PGRST116') {
+          // No madrashas exist in database yet. Auto-create the default one.
+          const { data: inserted, error: insertError } = await supabase
+            .from('madrashas')
+            .insert([{
+              name: 'মোহাম্মাদীয়া তাহফীযুল কুরআন মাদ্রাসা',
+              address: 'মিরপুর-১১, ঢাকা-১২১৬'
+            }])
+            .select()
+            .single();
+          if (insertError) {
+            console.error("Failed to auto-seed madrasha in Supabase:", insertError);
+            throw new Error(insertError.message);
+          }
+          return inserted;
+        }
+        console.error("Supabase error getting madrasha:", error);
+        throw new Error(error.message);
+      }
+      return data;
     }
     return getLocalItems<Madrasha>('madrashas')[0] || SEED_MADRASHA;
   },
@@ -290,7 +310,12 @@ export const db = {
           .select('*')
           .eq('id', user.id)
           .single();
-        if (!error && data) return data;
+        if (error) {
+          if (error.code === 'PGRST116') return null;
+          console.error("Supabase error getting user profile:", error);
+          throw new Error(error.message);
+        }
+        return data;
       }
       return null;
     }
@@ -313,7 +338,8 @@ export const db = {
 
   async logout() {
     if (isSupabaseConfigured()) {
-      await supabase.auth.signOut();
+      const { error } = await supabase.auth.signOut();
+      if (error) throw new Error(error.message);
     } else {
       if (typeof window !== 'undefined') {
         localStorage.removeItem('user_profile');
@@ -330,12 +356,14 @@ export const db = {
           *,
           teachers:teacher_id (name)
         `);
-      if (!error && data) {
-        return data.map((c: any) => ({
-          ...c,
-          teacher_name: c.teachers?.name || ''
-        }));
+      if (error) {
+        console.error("Supabase error getting classes:", error);
+        throw new Error(error.message);
       }
+      return (data || []).map((c: any) => ({
+        ...c,
+        teacher_name: c.teachers?.name || ''
+      }));
     }
     const classes = getLocalItems<Class>('classes');
     const teachers = getLocalItems<Teacher>('teachers');
@@ -346,6 +374,25 @@ export const db = {
   },
 
   async addClass(name: string, department: 'nurani' | 'nazera' | 'hifz' | 'kitab', teacherId?: string): Promise<Class> {
+    if (isSupabaseConfigured()) {
+      const madrasha = await this.getMadrasha();
+      const { data, error } = await supabase
+        .from('classes')
+        .insert([{
+          name,
+          department,
+          teacher_id: teacherId || null,
+          madrasha_id: madrasha.id
+        }])
+        .select()
+        .single();
+      if (error) {
+        console.error("Supabase error adding class:", error);
+        throw new Error(error.message);
+      }
+      return data;
+    }
+
     const newClass: Class = {
       id: 'class-' + Date.now(),
       name,
@@ -353,21 +400,6 @@ export const db = {
       teacher_id: teacherId,
       madrasha_id: MOCK_MADRASHA_ID
     };
-
-    if (isSupabaseConfigured()) {
-      const { data, error } = await supabase
-        .from('classes')
-        .insert([{
-          name,
-          department,
-          teacher_id: teacherId || null,
-          madrasha_id: (await this.getMadrasha()).id
-        }])
-        .select()
-        .single();
-      if (!error && data) return data;
-    }
-
     const classes = getLocalItems<Class>('classes');
     classes.push(newClass);
     saveLocalItems('classes', classes);
@@ -376,10 +408,14 @@ export const db = {
 
   async updateClass(id: string, name: string, department: 'nurani' | 'nazera' | 'hifz' | 'kitab', teacherId?: string): Promise<void> {
     if (isSupabaseConfigured()) {
-      await supabase
+      const { error } = await supabase
         .from('classes')
         .update({ name, department, teacher_id: teacherId || null })
         .eq('id', id);
+      if (error) {
+        console.error("Supabase error updating class:", error);
+        throw new Error(error.message);
+      }
       return;
     }
     const classes = getLocalItems<Class>('classes');
@@ -389,7 +425,11 @@ export const db = {
 
   async deleteClass(id: string): Promise<void> {
     if (isSupabaseConfigured()) {
-      await supabase.from('classes').delete().eq('id', id);
+      const { error } = await supabase.from('classes').delete().eq('id', id);
+      if (error) {
+        console.error("Supabase error deleting class:", error);
+        throw new Error(error.message);
+      }
       return;
     }
     const classes = getLocalItems<Class>('classes');
@@ -405,12 +445,14 @@ export const db = {
           *,
           classes:class_id (name)
         `);
-      if (!error && data) {
-        return data.map((s: any) => ({
-          ...s,
-          class_name: s.classes?.name || ''
-        }));
+      if (error) {
+        console.error("Supabase error getting students:", error);
+        throw new Error(error.message);
       }
+      return (data || []).map((s: any) => ({
+        ...s,
+        class_name: s.classes?.name || ''
+      }));
     }
     const students = getLocalItems<Student>('students');
     const classes = getLocalItems<Class>('classes');
@@ -430,35 +472,37 @@ export const db = {
         `)
         .eq('id', id)
         .single();
-      if (!error && data) {
-        return {
-          ...data,
-          class_name: data.classes?.name || ''
-        };
+      if (error) {
+        if (error.code === 'PGRST116') return null;
+        console.error("Supabase error getting student:", error);
+        throw new Error(error.message);
       }
-      return null;
+      return {
+        ...data,
+        class_name: data.classes?.name || ''
+      };
     }
     const students = await this.getStudents();
     return students.find(s => s.id === id) || null;
   },
 
   async addStudent(studentData: Omit<Student, 'id' | 'student_id' | 'madrasha_id'>): Promise<Student> {
-    const id = 'student-' + Date.now();
-    const students = getLocalItems<Student>('students');
-    
-    // Auto-generate student code like MTQ-006 (converting to Bangla characters optionally, or keep standard)
-    const nextCodeNum = students.length + 1;
-    const student_id = `MTQ-${String(nextCodeNum).padStart(3, '0')}`;
-
-    const newStudent: Student = {
-      ...studentData,
-      id,
-      student_id,
-      madrasha_id: MOCK_MADRASHA_ID
-    };
-
     if (isSupabaseConfigured()) {
       const madrasha = await this.getMadrasha();
+      
+      // Auto-generate student code like MTQ-006 (by counting records in Supabase)
+      const { count, error: countError } = await supabase
+        .from('students')
+        .select('*', { count: 'exact', head: true });
+      
+      if (countError) {
+        console.error("Supabase error counting students:", countError);
+        throw new Error(countError.message);
+      }
+
+      const nextCodeNum = (count || 0) + 1;
+      const student_id = `MTQ-${String(nextCodeNum).padStart(3, '0')}`;
+
       const { data, error } = await supabase
         .from('students')
         .insert([{
@@ -468,8 +512,23 @@ export const db = {
         }])
         .select()
         .single();
-      if (!error && data) return data;
+      if (error) {
+        console.error("Supabase error inserting student:", error);
+        throw new Error(error.message);
+      }
+      return data;
     }
+
+    const students = getLocalItems<Student>('students');
+    const nextCodeNum = students.length + 1;
+    const student_id = `MTQ-${String(nextCodeNum).padStart(3, '0')}`;
+    const id = 'student-' + Date.now();
+    const newStudent: Student = {
+      ...studentData,
+      id,
+      student_id,
+      madrasha_id: MOCK_MADRASHA_ID
+    };
 
     students.push(newStudent);
     saveLocalItems('students', students);
@@ -478,10 +537,14 @@ export const db = {
 
   async updateStudent(id: string, studentData: Partial<Student>): Promise<void> {
     if (isSupabaseConfigured()) {
-      await supabase
+      const { error } = await supabase
         .from('students')
         .update(studentData)
         .eq('id', id);
+      if (error) {
+        console.error("Supabase error updating student:", error);
+        throw new Error(error.message);
+      }
       return;
     }
     const students = getLocalItems<Student>('students');
@@ -491,7 +554,11 @@ export const db = {
 
   async deleteStudent(id: string): Promise<void> {
     if (isSupabaseConfigured()) {
-      await supabase.from('students').delete().eq('id', id);
+      const { error } = await supabase.from('students').delete().eq('id', id);
+      if (error) {
+        console.error("Supabase error deleting student:", error);
+        throw new Error(error.message);
+      }
       return;
     }
     const students = getLocalItems<Student>('students');
@@ -507,12 +574,14 @@ export const db = {
           *,
           classes:class_id (name)
         `);
-      if (!error && data) {
-        return data.map((t: any) => ({
-          ...t,
-          class_name: t.classes?.name || ''
-        }));
+      if (error) {
+        console.error("Supabase error getting teachers:", error);
+        throw new Error(error.message);
       }
+      return (data || []).map((t: any) => ({
+        ...t,
+        class_name: t.classes?.name || ''
+      }));
     }
     const teachers = getLocalItems<Teacher>('teachers');
     const classes = getLocalItems<Class>('classes');
@@ -532,26 +601,21 @@ export const db = {
         `)
         .eq('id', id)
         .single();
-      if (!error && data) {
-        return {
-          ...data,
-          class_name: data.classes?.name || ''
-        };
+      if (error) {
+        if (error.code === 'PGRST116') return null;
+        console.error("Supabase error getting teacher profile:", error);
+        throw new Error(error.message);
       }
-      return null;
+      return {
+        ...data,
+        class_name: data.classes?.name || ''
+      };
     }
     const teachers = await this.getTeachers();
     return teachers.find(t => t.id === id) || null;
   },
 
   async addTeacher(teacherData: Omit<Teacher, 'id' | 'madrasha_id'>): Promise<Teacher> {
-    const id = 'teacher-' + Date.now();
-    const newTeacher: Teacher = {
-      ...teacherData,
-      id,
-      madrasha_id: MOCK_MADRASHA_ID
-    };
-
     if (isSupabaseConfigured()) {
       const madrasha = await this.getMadrasha();
       const { data, error } = await supabase
@@ -562,9 +626,19 @@ export const db = {
         }])
         .select()
         .single();
-      if (!error && data) return data;
+      if (error) {
+        console.error("Supabase error inserting teacher:", error);
+        throw new Error(error.message);
+      }
+      return data;
     }
 
+    const id = 'teacher-' + Date.now();
+    const newTeacher: Teacher = {
+      ...teacherData,
+      id,
+      madrasha_id: MOCK_MADRASHA_ID
+    };
     const teachers = getLocalItems<Teacher>('teachers');
     teachers.push(newTeacher);
     saveLocalItems('teachers', teachers);
@@ -573,10 +647,14 @@ export const db = {
 
   async updateTeacher(id: string, teacherData: Partial<Teacher>): Promise<void> {
     if (isSupabaseConfigured()) {
-      await supabase
+      const { error } = await supabase
         .from('teachers')
         .update(teacherData)
         .eq('id', id);
+      if (error) {
+        console.error("Supabase error updating teacher:", error);
+        throw new Error(error.message);
+      }
       return;
     }
     const teachers = getLocalItems<Teacher>('teachers');
@@ -586,7 +664,11 @@ export const db = {
 
   async deleteTeacher(id: string): Promise<void> {
     if (isSupabaseConfigured()) {
-      await supabase.from('teachers').delete().eq('id', id);
+      const { error } = await supabase.from('teachers').delete().eq('id', id);
+      if (error) {
+        console.error("Supabase error deleting teacher:", error);
+        throw new Error(error.message);
+      }
       return;
     }
     const teachers = getLocalItems<Teacher>('teachers');
@@ -596,14 +678,31 @@ export const db = {
   // Attendance Management
   async getAttendance(date: string, classId: string): Promise<Attendance[]> {
     if (isSupabaseConfigured()) {
+      // First get student IDs for the specified class
+      const { data: classStudents, error: studentError } = await supabase
+        .from('students')
+        .select('id')
+        .eq('class_id', classId);
+      
+      if (studentError) {
+        console.error("Supabase error fetching students in class:", studentError);
+        throw new Error(studentError.message);
+      }
+
+      const studentIds = (classStudents || []).map((s: any) => s.id);
+      if (studentIds.length === 0) return [];
+
       const { data, error } = await supabase
         .from('attendance')
         .select('*')
         .eq('date', date)
-        .in('student_id', (
-          await supabase.from('students').select('id').eq('class_id', classId)
-        ).data?.map((s: any) => s.id) || []);
-      if (!error && data) return data;
+        .in('student_id', studentIds);
+
+      if (error) {
+        console.error("Supabase error fetching attendance records:", error);
+        throw new Error(error.message);
+      }
+      return data || [];
     }
     const attendances = getLocalItems<Attendance>('attendance');
     const students = getLocalItems<Student>('students').filter(s => s.class_id === classId);
@@ -614,9 +713,8 @@ export const db = {
   async saveAttendance(date: string, records: { student_id: string; status: 'present' | 'absent' }[]): Promise<void> {
     if (isSupabaseConfigured()) {
       const madrashaId = (await this.getMadrasha()).id;
-      // Upsert record-by-record
       for (const record of records) {
-        await supabase
+        const { error } = await supabase
           .from('attendance')
           .upsert({
             student_id: record.student_id,
@@ -624,12 +722,15 @@ export const db = {
             status: record.status,
             madrasha_id: madrashaId
           }, { onConflict: 'student_id,date' });
+        if (error) {
+          console.error("Supabase error upserting attendance:", error);
+          throw new Error(error.message);
+        }
       }
       return;
     }
 
     const attendances = getLocalItems<Attendance>('attendance');
-    // Filter out existing matching date+student_id records
     const studentIds = records.map(r => r.student_id);
     const remaining = attendances.filter(a => !(a.date === date && studentIds.includes(a.student_id)));
 
@@ -654,7 +755,11 @@ export const db = {
         .select('*')
         .eq('student_id', studentId)
         .order('date', { ascending: false });
-      if (!error && data) return data;
+      if (error) {
+        console.error("Supabase error fetching hifz progress:", error);
+        throw new Error(error.message);
+      }
+      return data || [];
     }
     const hifz = getLocalItems<HifzProgress>('hifz_progress');
     return hifz
@@ -663,13 +768,6 @@ export const db = {
   },
 
   async saveHifzProgress(progress: Omit<HifzProgress, 'id' | 'madrasha_id'>): Promise<HifzProgress> {
-    const id = 'hifz-p-' + Date.now();
-    const newProgress: HifzProgress = {
-      ...progress,
-      id,
-      madrasha_id: MOCK_MADRASHA_ID
-    };
-
     if (isSupabaseConfigured()) {
       const madrasha = await this.getMadrasha();
       const { data, error } = await supabase
@@ -680,8 +778,19 @@ export const db = {
         }])
         .select()
         .single();
-      if (!error && data) return data;
+      if (error) {
+        console.error("Supabase error inserting hifz progress:", error);
+        throw new Error(error.message);
+      }
+      return data;
     }
+
+    const id = 'hifz-p-' + Date.now();
+    const newProgress: HifzProgress = {
+      ...progress,
+      id,
+      madrasha_id: MOCK_MADRASHA_ID
+    };
 
     const allHifz = getLocalItems<HifzProgress>('hifz_progress');
     allHifz.push(newProgress);
@@ -695,27 +804,18 @@ export const db = {
       const { data, error } = await supabase
         .from('fee_collection')
         .select('*');
-      if (!error && data) return data;
+      if (error) {
+        console.error("Supabase error getting fees:", error);
+        throw new Error(error.message);
+      }
+      return data || [];
     }
     return getLocalItems<FeeCollection>('fee_collection');
   },
 
   async collectFee(studentId: string, month: number, year: number, amount: number): Promise<FeeCollection> {
-    const id = 'fee-' + Date.now();
-    // Receipt Number structure: REC-YYYYMMDD-Random
     const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
     const receipt_number = `REC-${dateStr}-${Math.floor(100 + Math.random() * 900)}`;
-
-    const newFee: FeeCollection = {
-      id,
-      student_id: studentId,
-      month,
-      year,
-      amount,
-      paid_date: new Date().toISOString().slice(0, 10),
-      receipt_number,
-      madrasha_id: MOCK_MADRASHA_ID
-    };
 
     if (isSupabaseConfigured()) {
       const madrasha = await this.getMadrasha();
@@ -727,13 +827,29 @@ export const db = {
           year,
           amount,
           receipt_number,
-          paid_date: newFee.paid_date,
+          paid_date: new Date().toISOString().slice(0, 10),
           madrasha_id: madrasha.id
         }])
         .select()
         .single();
-      if (!error && data) return data;
+      if (error) {
+        console.error("Supabase error collecting fee:", error);
+        throw new Error(error.message);
+      }
+      return data;
     }
+
+    const id = 'fee-' + Date.now();
+    const newFee: FeeCollection = {
+      id,
+      student_id: studentId,
+      month,
+      year,
+      amount,
+      paid_date: new Date().toISOString().slice(0, 10),
+      receipt_number,
+      madrasha_id: MOCK_MADRASHA_ID
+    };
 
     const fees = getLocalItems<FeeCollection>('fee_collection');
     fees.push(newFee);
@@ -747,12 +863,37 @@ export const db = {
       const { data, error } = await supabase
         .from('teacher_salary')
         .select('*');
-      if (!error && data) return data;
+      if (error) {
+        console.error("Supabase error getting salaries:", error);
+        throw new Error(error.message);
+      }
+      return data || [];
     }
     return getLocalItems<TeacherSalary>('teacher_salary');
   },
 
   async paySalary(teacherId: string, month: number, year: number, amount: number): Promise<TeacherSalary> {
+    if (isSupabaseConfigured()) {
+      const madrasha = await this.getMadrasha();
+      const { data, error } = await supabase
+        .from('teacher_salary')
+        .insert([{
+          teacher_id: teacherId,
+          month,
+          year,
+          amount,
+          paid_date: new Date().toISOString().slice(0, 10),
+          madrasha_id: madrasha.id
+        }])
+        .select()
+        .single();
+      if (error) {
+        console.error("Supabase error paying salary:", error);
+        throw new Error(error.message);
+      }
+      return data;
+    }
+
     const id = 'sal-' + Date.now();
     const newSalary: TeacherSalary = {
       id,
@@ -763,23 +904,6 @@ export const db = {
       paid_date: new Date().toISOString().slice(0, 10),
       madrasha_id: MOCK_MADRASHA_ID
     };
-
-    if (isSupabaseConfigured()) {
-      const madrasha = await this.getMadrasha();
-      const { data, error } = await supabase
-        .from('teacher_salary')
-        .insert([{
-          teacher_id: teacherId,
-          month,
-          year,
-          amount,
-          paid_date: newSalary.paid_date,
-          madrasha_id: madrasha.id
-        }])
-        .select()
-        .single();
-      if (!error && data) return data;
-    }
 
     const salaries = getLocalItems<TeacherSalary>('teacher_salary');
     salaries.push(newSalary);
@@ -794,19 +918,16 @@ export const db = {
         .from('committee_members')
         .select('*')
         .order('created_at', { ascending: true });
-      if (!error && data) return data;
+      if (error) {
+        console.error("Supabase error getting committee members:", error);
+        throw new Error(error.message);
+      }
+      return data || [];
     }
     return getLocalItems<CommitteeMember>('committee_members');
   },
 
   async addCommitteeMember(memberData: Omit<CommitteeMember, 'id' | 'madrasha_id'>): Promise<CommitteeMember> {
-    const id = 'comm-' + Date.now();
-    const newMember: CommitteeMember = {
-      ...memberData,
-      id,
-      madrasha_id: MOCK_MADRASHA_ID
-    };
-
     if (isSupabaseConfigured()) {
       const madrasha = await this.getMadrasha();
       const { data, error } = await supabase
@@ -817,9 +938,19 @@ export const db = {
         }])
         .select()
         .single();
-      if (!error && data) return data;
+      if (error) {
+        console.error("Supabase error inserting committee member:", error);
+        throw new Error(error.message);
+      }
+      return data;
     }
 
+    const id = 'comm-' + Date.now();
+    const newMember: CommitteeMember = {
+      ...memberData,
+      id,
+      madrasha_id: MOCK_MADRASHA_ID
+    };
     const members = getLocalItems<CommitteeMember>('committee_members');
     members.push(newMember);
     saveLocalItems('committee_members', members);
@@ -828,10 +959,14 @@ export const db = {
 
   async updateCommitteeMember(id: string, memberData: Partial<CommitteeMember>): Promise<void> {
     if (isSupabaseConfigured()) {
-      await supabase
+      const { error } = await supabase
         .from('committee_members')
         .update(memberData)
         .eq('id', id);
+      if (error) {
+        console.error("Supabase error updating committee member:", error);
+        throw new Error(error.message);
+      }
       return;
     }
     const members = getLocalItems<CommitteeMember>('committee_members');
@@ -841,7 +976,11 @@ export const db = {
 
   async deleteCommitteeMember(id: string): Promise<void> {
     if (isSupabaseConfigured()) {
-      await supabase.from('committee_members').delete().eq('id', id);
+      const { error } = await supabase.from('committee_members').delete().eq('id', id);
+      if (error) {
+        console.error("Supabase error deleting committee member:", error);
+        throw new Error(error.message);
+      }
       return;
     }
     const members = getLocalItems<CommitteeMember>('committee_members');
@@ -854,22 +993,16 @@ export const db = {
       const { data, error } = await supabase
         .from('expenses')
         .select('*');
-      if (!error && data) return data;
+      if (error) {
+        console.error("Supabase error getting expenses:", error);
+        throw new Error(error.message);
+      }
+      return data || [];
     }
     return getLocalItems<Expense>('expenses');
   },
 
   async addExpense(title: string, amount: number, category: string, date: string): Promise<Expense> {
-    const id = 'exp-' + Date.now();
-    const newExpense: Expense = {
-      id,
-      title,
-      amount,
-      category,
-      expense_date: date,
-      madrasha_id: MOCK_MADRASHA_ID
-    };
-
     if (isSupabaseConfigured()) {
       const madrasha = await this.getMadrasha();
       const { data, error } = await supabase
@@ -883,8 +1016,22 @@ export const db = {
         }])
         .select()
         .single();
-      if (!error && data) return data;
+      if (error) {
+        console.error("Supabase error inserting expense:", error);
+        throw new Error(error.message);
+      }
+      return data;
     }
+
+    const id = 'exp-' + Date.now();
+    const newExpense: Expense = {
+      id,
+      title,
+      amount,
+      category,
+      expense_date: date,
+      madrasha_id: MOCK_MADRASHA_ID
+    };
 
     const expenses = getLocalItems<Expense>('expenses');
     expenses.push(newExpense);
@@ -894,7 +1041,11 @@ export const db = {
 
   async deleteExpense(id: string): Promise<void> {
     if (isSupabaseConfigured()) {
-      await supabase.from('expenses').delete().eq('id', id);
+      const { error } = await supabase.from('expenses').delete().eq('id', id);
+      if (error) {
+        console.error("Supabase error deleting expense:", error);
+        throw new Error(error.message);
+      }
       return;
     }
     const expenses = getLocalItems<Expense>('expenses');
@@ -910,12 +1061,14 @@ export const db = {
           *,
           classes:class_id (name)
         `);
-      if (!error && data) {
-        return data.map((e: any) => ({
-          ...e,
-          class_name: e.classes?.name || ''
-        }));
+      if (error) {
+        console.error("Supabase error getting exams:", error);
+        throw new Error(error.message);
       }
+      return (data || []).map((e: any) => ({
+        ...e,
+        class_name: e.classes?.name || ''
+      }));
     }
     const exams = getLocalItems<Exam>('exams');
     const classes = getLocalItems<Class>('classes');
@@ -926,16 +1079,6 @@ export const db = {
   },
 
   async addExam(name: string, classId: string, examDate: string, totalMarks: number): Promise<Exam> {
-    const id = 'exam-' + Date.now();
-    const newExam: Exam = {
-      id,
-      name,
-      class_id: classId,
-      exam_date: examDate,
-      total_marks: totalMarks,
-      madrasha_id: MOCK_MADRASHA_ID
-    };
-
     if (isSupabaseConfigured()) {
       const madrasha = await this.getMadrasha();
       const { data, error } = await supabase
@@ -949,8 +1092,22 @@ export const db = {
         }])
         .select()
         .single();
-      if (!error && data) return data;
+      if (error) {
+        console.error("Supabase error inserting exam:", error);
+        throw new Error(error.message);
+      }
+      return data;
     }
+
+    const id = 'exam-' + Date.now();
+    const newExam: Exam = {
+      id,
+      name,
+      class_id: classId,
+      exam_date: examDate,
+      total_marks: totalMarks,
+      madrasha_id: MOCK_MADRASHA_ID
+    };
 
     const exams = getLocalItems<Exam>('exams');
     exams.push(newExam);
@@ -967,13 +1124,15 @@ export const db = {
           students:student_id (name, student_id)
         `)
         .eq('exam_id', examId);
-      if (!error && data) {
-        return data.map((r: any) => ({
-          ...r,
-          student_name: r.students?.name || '',
-          student_code: r.students?.student_id || ''
-        }));
+      if (error) {
+        console.error("Supabase error getting exam results:", error);
+        throw new Error(error.message);
       }
+      return (data || []).map((r: any) => ({
+        ...r,
+        student_name: r.students?.name || '',
+        student_code: r.students?.student_id || ''
+      }));
     }
     const results = getLocalItems<Result>('results');
     const students = getLocalItems<Student>('students');
@@ -993,7 +1152,7 @@ export const db = {
     if (isSupabaseConfigured()) {
       const madrashaId = (await this.getMadrasha()).id;
       for (const rec of records) {
-        await supabase
+        const { error } = await supabase
           .from('results')
           .upsert({
             exam_id: examId,
@@ -1001,6 +1160,10 @@ export const db = {
             marks_obtained: rec.marks_obtained,
             madrasha_id: madrashaId
           }, { onConflict: 'exam_id,student_id' });
+        if (error) {
+          console.error("Supabase error upserting results:", error);
+          throw new Error(error.message);
+        }
       }
       return;
     }
