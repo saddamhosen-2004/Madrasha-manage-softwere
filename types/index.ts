@@ -5,6 +5,7 @@ export interface Madrasha {
   phone?: string;
   email?: string;
   logo_url?: string;
+  favicon_url?: string;
   tagline?: string;
   established_year?: string;
   principal_name?: string;

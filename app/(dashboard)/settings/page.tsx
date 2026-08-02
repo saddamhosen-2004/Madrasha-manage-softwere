@@ -6,7 +6,7 @@ import { Madrasha } from '@/types';
 import { 
   Settings, Building2, MapPin, Phone, Mail, 
   Calendar, User, Save, Upload, Image as ImageIcon, 
-  Sparkles, CheckCircle2
+  Sparkles, CheckCircle2, Globe, Bookmark
 } from 'lucide-react';
 
 export default function SettingsPage() {
@@ -24,10 +24,22 @@ export default function SettingsPage() {
   const [establishedYear, setEstablishedYear] = useState('');
   const [principalName, setPrincipalName] = useState('');
   const [logoUrl, setLogoUrl] = useState('');
+  const [faviconUrl, setFaviconUrl] = useState('');
 
   useEffect(() => {
     loadSettings();
   }, []);
+
+  const updateFaviconInDOM = (url: string) => {
+    if (typeof document === 'undefined' || !url) return;
+    let link: HTMLLinkElement | null = document.querySelector("link[rel*='icon']");
+    if (!link) {
+      link = document.createElement('link');
+      link.rel = 'shortcut icon';
+      document.getElementsByTagName('head')[0].appendChild(link);
+    }
+    link.href = url;
+  };
 
   const loadSettings = async () => {
     try {
@@ -42,6 +54,10 @@ export default function SettingsPage() {
         setEstablishedYear(data.established_year || '');
         setPrincipalName(data.principal_name || '');
         setLogoUrl(data.logo_url || '');
+        setFaviconUrl(data.favicon_url || '');
+        if (data.favicon_url) {
+          updateFaviconInDOM(data.favicon_url);
+        }
       }
     } catch (err) {
       console.error('Error loading settings:', err);
@@ -56,6 +72,19 @@ export default function SettingsPage() {
       const reader = new FileReader();
       reader.onloadend = () => {
         setLogoUrl(reader.result as string);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const handleFaviconUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const resultUrl = reader.result as string;
+        setFaviconUrl(resultUrl);
+        updateFaviconInDOM(resultUrl);
       };
       reader.readAsDataURL(file);
     }
@@ -79,12 +108,16 @@ export default function SettingsPage() {
         email,
         established_year: establishedYear,
         principal_name: principalName,
-        logo_url: logoUrl
+        logo_url: logoUrl,
+        favicon_url: faviconUrl
       });
       setMadrasha(updated);
-      setSuccessMsg('সাইট সেটিংস সফলভাবে আপডেট হয়েছে!');
+      if (faviconUrl) {
+        updateFaviconInDOM(faviconUrl);
+      }
+      setSuccessMsg('সাইট সেটিংস ও ফেভিকন সফলভাবে আপডেট হয়েছে!');
       
-      // Dispatch a custom event so layout.tsx can react & refresh logo/name instantly
+      // Dispatch a custom event so layout.tsx can react & refresh logo/name/favicon instantly
       if (typeof window !== 'undefined') {
         window.dispatchEvent(new Event('madrasha-settings-updated'));
       }
@@ -122,7 +155,7 @@ export default function SettingsPage() {
             </div>
             <div>
               <h3 className="text-2xl font-bold">সাইট ও প্রতিষ্ঠান সেটিংস</h3>
-              <p className="text-white/80 text-sm mt-1">মাদরাসার নাম, লোগো, ঠিকানা ও যোগাযোগের সকল তথ্য কাস্টমাইজ করুন।</p>
+              <p className="text-white/80 text-sm mt-1">মাদরাসার নাম, লোগো, ফেভিকন আইকন, ঠিকানা ও যোগাযোগের সকল তথ্য কাস্টমাইজ করুন।</p>
             </div>
           </div>
         </div>
@@ -139,7 +172,7 @@ export default function SettingsPage() {
       {/* ── Settings Form ── */}
       <form onSubmit={handleSubmit} className="grid grid-cols-1 lg:grid-cols-3 gap-6">
 
-        {/* ── Left Column: Basic Info & Branding ── */}
+        {/* ── Left Column: Basic Info & Contact ── */}
         <div className="lg:col-span-2 space-y-6">
 
           {/* Institution Info */}
@@ -274,31 +307,30 @@ export default function SettingsPage() {
 
         </div>
 
-        {/* ── Right Column: Logo Upload & Live Preview ── */}
+        {/* ── Right Column: Logo & Favicon Upload ── */}
         <div className="space-y-6">
 
           {/* Logo Card */}
           <div className="animate-fade-in-up delay-225 bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
             <div className="bg-gradient-to-r from-cyan-500 to-blue-500 px-5 py-3.5 flex items-center gap-2">
               <ImageIcon size={16} className="text-white" />
-              <span className="font-bold text-white text-sm">মাদরাসার লোগো</span>
+              <span className="font-bold text-white text-sm">মাদরাসার লোগো (Header/Sidebar Logo)</span>
             </div>
             <div className="p-5 space-y-4">
               
               {/* Logo Preview */}
-              <div className="flex flex-col items-center justify-center p-6 rounded-2xl bg-gradient-to-br from-slate-50 to-slate-100 border-2 border-dashed border-slate-200">
-                <div className="h-24 w-24 rounded-2xl bg-emerald-700 text-white flex items-center justify-center shadow-lg overflow-hidden shrink-0 border-2 border-white mb-3">
+              <div className="flex flex-col items-center justify-center p-5 rounded-2xl bg-gradient-to-br from-slate-50 to-slate-100 border-2 border-dashed border-slate-200">
+                <div className="h-20 w-20 rounded-2xl bg-emerald-700 text-white flex items-center justify-center shadow-lg overflow-hidden shrink-0 border-2 border-white mb-2.5">
                   {logoUrl ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img src={logoUrl} alt="Logo Preview" className="h-full w-full object-cover" />
                   ) : (
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-12 h-12">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-10 h-10">
                       <path strokeLinecap="round" strokeLinejoin="round" d="M12 21v-8.25M15.75 21v-8.25M8.25 21v-8.25M3 9l9-6 9 6m-1.5 12V10.332A48.36 48.36 0 0 0 12 9.75c-2.551 0-5.053.2-7.5.582V21M3 21h18M12 6.75h.008v.008H12V6.75Z" />
                     </svg>
                   )}
                 </div>
                 <p className="text-xs font-bold text-slate-700">{name || 'লোগো প্রিভিউ'}</p>
-                <p className="text-[10px] text-slate-400 mt-0.5">{tagline || 'মাদরাসা ম্যানেজমেন্ট সিস্টেম'}</p>
               </div>
 
               {/* Upload Input */}
@@ -311,15 +343,14 @@ export default function SettingsPage() {
                   type="file"
                   accept="image/*"
                   onChange={handleLogoUpload}
-                  className="block w-full text-xs text-slate-500 file:mr-3 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-cyan-50 file:text-cyan-700 hover:file:bg-cyan-100 transition cursor-pointer"
+                  className="block w-full text-xs text-slate-500 file:mr-3 file:py-1.5 file:px-3 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-cyan-50 file:text-cyan-700 hover:file:bg-cyan-100 transition cursor-pointer"
                 />
-                <p className="text-[10px] text-slate-400 mt-1.5">PNG, JPG বা SVG ফরম্যাটের ছবি আপলোড করুন।</p>
               </div>
 
               {/* Logo URL alternative */}
               <div>
-                <label className="block text-xs font-bold text-slate-600 mb-1.5">
-                  অথবা ছবির অনলাইন URL লিখুন
+                <label className="block text-xs font-bold text-slate-600 mb-1">
+                  অথবা লোগোর অনলাইন URL লিখুন
                 </label>
                 <input
                   type="url"
@@ -333,15 +364,86 @@ export default function SettingsPage() {
             </div>
           </div>
 
+          {/* ── Favicon Change System Card ── */}
+          <div className="animate-fade-in-up delay-300 bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+            <div className="bg-gradient-to-r from-violet-500 to-purple-500 px-5 py-3.5 flex items-center gap-2">
+              <Globe size={16} className="text-white" />
+              <span className="font-bold text-white text-sm">ফেভিকন আইকন (Browser Tab Favicon)</span>
+            </div>
+            <div className="p-5 space-y-4">
+              
+              {/* Browser Tab Live Mockup Preview */}
+              <div>
+                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">
+                  ব্রাউজার ট্যাব প্রিভিউ (Browser Tab Preview)
+                </label>
+                <div className="flex items-center gap-2 rounded-t-xl bg-slate-200 p-2.5 border border-slate-300">
+                  <div className="flex gap-1.5">
+                    <div className="h-2.5 w-2.5 rounded-full bg-rose-400"></div>
+                    <div className="h-2.5 w-2.5 rounded-full bg-amber-400"></div>
+                    <div className="h-2.5 w-2.5 rounded-full bg-emerald-400"></div>
+                  </div>
+                  {/* Tab pill */}
+                  <div className="flex items-center gap-2 rounded-lg bg-white px-3 py-1.5 shadow-sm border border-slate-200 max-w-[200px] truncate">
+                    <div className="h-4 w-4 rounded overflow-hidden shrink-0 bg-emerald-700 flex items-center justify-center text-white">
+                      {faviconUrl ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={faviconUrl} alt="Favicon" className="h-full w-full object-cover" />
+                      ) : logoUrl ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={logoUrl} alt="Favicon" className="h-full w-full object-cover" />
+                      ) : (
+                        <Bookmark size={10} />
+                      )}
+                    </div>
+                    <span className="text-[11px] font-bold text-slate-700 truncate">{name || 'মাদরাসা সফটওয়্যার'}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Favicon File Upload */}
+              <div>
+                <label className="block text-xs font-bold text-slate-600 mb-1.5 flex items-center gap-1">
+                  <Upload size={11} className="text-violet-500" />
+                  নতুন ফেভিকন আপলোড করুন (.ico, .png, .jpg)
+                </label>
+                <input
+                  type="file"
+                  accept="image/*,.ico"
+                  onChange={handleFaviconUpload}
+                  className="block w-full text-xs text-slate-500 file:mr-3 file:py-1.5 file:px-3 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-violet-50 file:text-violet-700 hover:file:bg-violet-100 transition cursor-pointer"
+                />
+              </div>
+
+              {/* Favicon URL alternative */}
+              <div>
+                <label className="block text-xs font-bold text-slate-600 mb-1">
+                  অথবা ফেভিকনের অনলাইন URL লিখুন
+                </label>
+                <input
+                  type="url"
+                  value={faviconUrl}
+                  onChange={(e) => {
+                    setFaviconUrl(e.target.value);
+                    updateFaviconInDOM(e.target.value);
+                  }}
+                  placeholder="https://example.com/favicon.ico"
+                  className={inputClass.replace('focus:border-emerald-400', 'focus:border-violet-400').replace('focus:ring-emerald-100', 'focus:ring-violet-100')}
+                />
+              </div>
+
+            </div>
+          </div>
+
           {/* Submit Button */}
-          <div className="animate-fade-in-up delay-300">
+          <div className="animate-fade-in-up delay-375">
             <button
               type="submit"
               disabled={saving}
               className="w-full inline-flex items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-emerald-500 via-teal-500 to-cyan-500 px-6 py-3.5 text-sm font-bold text-white shadow-lg shadow-emerald-500/20 hover:opacity-95 transition disabled:opacity-60 cursor-pointer"
             >
               <Save size={18} />
-              <span>{saving ? 'সংরক্ষণ হচ্ছে...' : 'সেটিংস পরিবর্তন সংরক্ষণ করুন'}</span>
+              <span>{saving ? 'সংরক্ষণ হচ্ছে...' : 'সেটিংস ও ফেভিকন সংরক্ষণ করুন'}</span>
             </button>
           </div>
 

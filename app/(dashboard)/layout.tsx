@@ -23,6 +23,17 @@ export default function DashboardLayout({
   const router = useRouter();
   const pathname = usePathname();
 
+  const updateFaviconInDOM = (url?: string) => {
+    if (typeof document === 'undefined' || !url) return;
+    let link: HTMLLinkElement | null = document.querySelector("link[rel*='icon']");
+    if (!link) {
+      link = document.createElement('link');
+      link.rel = 'shortcut icon';
+      document.getElementsByTagName('head')[0].appendChild(link);
+    }
+    link.href = url;
+  };
+
   const loadData = async () => {
     const userProfile = await db.getProfile();
     if (!userProfile) {
@@ -31,6 +42,9 @@ export default function DashboardLayout({
       setProfile(userProfile);
       const madrashaData = await db.getMadrasha();
       setMadrasha(madrashaData);
+      if (madrashaData?.favicon_url) {
+        updateFaviconInDOM(madrashaData.favicon_url);
+      }
     }
     setLoading(false);
   };
@@ -40,7 +54,12 @@ export default function DashboardLayout({
 
     // Listen for custom settings update event
     const handleSettingsUpdated = () => {
-      db.getMadrasha().then(data => setMadrasha(data));
+      db.getMadrasha().then(data => {
+        setMadrasha(data);
+        if (data?.favicon_url) {
+          updateFaviconInDOM(data.favicon_url);
+        }
+      });
     };
 
     if (typeof window !== 'undefined') {
